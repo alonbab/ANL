@@ -44,7 +44,7 @@ class TemplateAgent(DefaultParty):
         self.me: PartyId = None
         self.random: final(random) = random.Random()
         self.protocol = ""
-        self.other: str = None
+        self.opponent_name: str = None
         self.settings: Settings = None
         self.storage_dir: str = None
 
@@ -65,25 +65,25 @@ class TemplateAgent(DefaultParty):
         # agent containing all the information about the negotiation session.
         try:
             if isinstance(data, Settings):
-                #data is an object that is passed at the start of the negotiation
-              self.settings = cast(Settings, data)
-                #ID of my agent
-              self.me = self.settings.getID()
+                # data is an object that is passed at the start of the negotiation
+                self.settings = cast(Settings, data)
+                # ID of my agent
+                self.me = self.settings.getID()
 
-              # progress towards the deadline has to be tracked manually through the use of the Progress object
-              self.progress = self.settings.getProgress()
+                # progress towards the deadline has to be tracked manually through the use of the Progress object
+                self.progress = self.settings.getProgress()
 
-              self.protocol = self.settings.getProtocol().getURI().getPath()
-              self.parameters = self.settings.getParameters()
-              self.storage_dir = self.parameters.get("storage_dir")
+                self.protocol = self.settings.getProtocol().getURI().getPath()
+                self.parameters = self.settings.getParameters()
+                self.storage_dir = self.parameters.get("storage_dir")
 
-              #the profile contains the preferences of the agent over the domain
-              profile_connection = ProfileConnectionFactory.create(
-                  data.getProfile().getURI(), self.getReporter()
-               )
-              self.profile = profile_connection.getProfile()
-              self.domain = self.profile.getDomain()
-              profile_connection.close()
+                # the profile contains the preferences of the agent over the domain
+                profile_connection = ProfileConnectionFactory.create(
+                    data.getProfile().getURI(), self.getReporter()
+                )
+                self.profile = profile_connection.getProfile()
+                self.domain = self.profile.getDomain()
+                profile_connection.close()
             # ActionDone informs you of an action (an offer or an accept)
             # that is performed by one of the agents (including yourself).
             elif isinstance(data, ActionDone):
@@ -91,23 +91,25 @@ class TemplateAgent(DefaultParty):
                 actor = action.getActor()
                 # ignore action if it is our action
                 if actor != self.me:
-                 # obtain the name of the opponent, cutting of the position ID.
-                 self.other = str(actor).rsplit("_", 1)[0]
+                    # obtain the name of the opponent, cutting of the position ID.
+                    self.opponent_name = str(actor).rsplit("_", 1)[0]
+                    print("The Opponent is " + self.opponent_name)
+
                 # process action done by opponent
                 self.opponent_action(action)
             # YourTurn notifies you that it is your turn to act
             elif isinstance(data, YourTurn):
-               self.my_turn()
-               # Finished will be send if the negotiation has ended (through agreement or deadline)
+                self.my_turn()
+                # Finished will be send if the negotiation has ended (through agreement or deadline)
             elif isinstance(data, Finished):
-             self.save_data()
-              # terminate the agent MUST BE CALLED
-             self.logger.log(logging.INFO, "party is terminating:")
-             super().terminate()
+                self.save_data()
+                # terminate the agent MUST BE CALLED
+                self.logger.log(logging.INFO, "party is terminating:")
+                super().terminate()
             else:
-             self.logger.log(logging.WARNING, "Ignoring unknown info " + str(data))
+                self.logger.log(logging.WARNING, "Ignoring unknown info " + str(data))
         except:
-          raise Exception("Illegal state exception")
+            raise Exception("Illegal state exception")
 
     def getCapabilities(self) -> Capabilities:
         """MUST BE IMPLEMENTED

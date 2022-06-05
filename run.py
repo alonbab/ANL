@@ -18,7 +18,7 @@ if not RESULTS_DIR.exists():
 settings = {
     "agents": [
         {
-            "class": "agents.boulware_agent.boulware_agent.BoulwareAgent",
+            "class": "agents.conceder_agent.conceder_agent.ConcederAgent",
         },
         {
             "class": "agents.template_agent.template_agent.TemplateAgent",
