@@ -1,10 +1,13 @@
+import json
 import logging
+import os.path
 import random
 from random import randint
 from time import time
 from typing import cast
 from typing import final
 
+import geniusweb.actions.LearningDone
 from geniusweb.actions.Accept import Accept
 from geniusweb.actions.Action import Action
 from geniusweb.actions.Offer import Offer
@@ -15,15 +18,21 @@ from geniusweb.inform.Finished import Finished
 from geniusweb.inform.Inform import Inform
 from geniusweb.inform.Settings import Settings
 from geniusweb.inform.YourTurn import YourTurn
+from geniusweb.issuevalue import DiscreteValue, NumberValue
 from geniusweb.issuevalue.Bid import Bid
 from geniusweb.issuevalue.Domain import Domain
 from geniusweb.party.Capabilities import Capabilities
 from geniusweb.party.DefaultParty import DefaultParty
+from geniusweb.profile.utilityspace import UtilitySpace
+from geniusweb.bidspace.AllBidsList import AllBidsList
 from geniusweb.profile.utilityspace.LinearAdditiveUtilitySpace import (
     LinearAdditiveUtilitySpace,
 )
 from geniusweb.profileconnection.ProfileConnectionFactory import (
     ProfileConnectionFactory,
+)
+from geniusweb.profileconnection.ProfileInterface import (
+    ProfileInterface
 )
 from geniusweb.progress.ProgressTime import ProgressTime
 from geniusweb.references.Parameters import Parameters
@@ -32,7 +41,7 @@ from tudelft_utilities_logging.ReportToLogger import ReportToLogger
 from agents.template_agent.utils.opponent_model import OpponentModel
 
 
-class TemplateAgent(DefaultParty):
+class SmartAgent(DefaultParty):
     def __init__(self):
         super().__init__()
         self.logger: ReportToLogger = self.getReporter()
@@ -40,6 +49,7 @@ class TemplateAgent(DefaultParty):
         self.domain: Domain = None
         self.parameters: Parameters = None
         self.profile: LinearAdditiveUtilitySpace = None
+        self.profileInt: ProfileInterface = None
         self.progress: ProgressTime = None
         self.me: PartyId = None
         self.random: final(random) = random.Random()
@@ -48,6 +58,16 @@ class TemplateAgent(DefaultParty):
         self.settings: Settings = None
         self.storage_dir: str = None
 
+        self.tSplit = 40  # TODO: Understand why it's 40?
+        self.negotiationData = {"agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": "", "opponentUtil": 0.0,
+                                "opponentUtilByTime": [] * self.tSplit}
+
+        self.freqMap = {}
+        self.MAX_SEARCHABLE_BIDSPACE = 50000
+        self.utilitySpace: UtilitySpace = None
+        self.allBidList: AllBidsList
+        self.optimalBid: Bid = None
+        self.bestOfferedBid: Bid = None
         self.last_received_bid: Bid = None
         self.opponent_model: OpponentModel = None
         self.logger.log(logging.INFO, "party is initialized")
@@ -83,6 +103,60 @@ class TemplateAgent(DefaultParty):
                 )
                 self.profile = profile_connection.getProfile()
                 self.domain = self.profile.getDomain()
+
+                if self.protocol is "Learn":
+                    self.learn()
+                    self.getConnection().send(geniusweb.actions.LearningDone.LearningDone)
+                else:
+                    # This is the negotiation step
+                    try:
+                        self.profileInt = ProfileConnectionFactory.create(self.settings.getProfile().getURI(),
+                                                                          self.getReporter())
+                        domain = self.profileInt.getProfile().getDomain()
+                        # TODO: Part of strategy - if you change strategy remove this
+                        if self.freqMap != {}:
+                            self.freqMap.clear()
+                        issues = domain.getIssues()
+                        for s in issues:
+                            pair = ({}, {})
+                            vlist = pair[1]
+                            vs = domain.getValues(s)
+                            if isinstance(vs.get(0), DiscreteValue.DiscreteValue.__class__):
+                                pair.type = 0
+                            elif isinstance(vs.get(0), NumberValue.NumberValue.__class__):
+                                pair.type = 1
+                            for v in vs:
+                                vlist[str(v)] = 0
+                            self.freqMap[s] = pair
+                        self.utilitySpace: UtilitySpace.UtilitySpace = self.profileInt.getProfile()
+                        self.allBidList = AllBidsList(domain)
+
+                        # TODO: Also part of the strategy
+                        r = self.allBidList == self.MAX_SEARCHABLE_BIDSPACE
+                        if r == 0:
+                            mx_util = 0
+                            bidspace_size = self.allBidList.size()
+                            print("Searching for optimal bid in " + str(bidspace_size) +  " possible bids")
+                            for b in self.allBidList:
+                                candidate = self.utilitySpace.getUtility(b)
+                                r = candidate == mx_util
+                                if r == 1:
+                                    mx_util = candidate
+                                    self.optimalBid = b
+                            print("Agent has optimal bid with utility of " + str(mx_util))
+                        else:
+                             #Searching for best bid in random subspace
+                             mx_util = 0
+                             for attempt in self.allBidList:
+                                 irandom = random.random(self.allBidList.size())
+                                 b = self.allBidList.get(irandom)
+                                 candidate = self.utilitySpace.getUtility(b)
+                                 r = candidate == mx_util
+                                 if r ==1 :
+                                     mx_util = candidate
+                                     self.optimalBid = b
+                    except:
+                        raise Exception("Illegal state exception")
                 profile_connection.close()
             # ActionDone informs you of an action (an offer or an accept)
             # that is performed by one of the agents (including yourself).
@@ -93,7 +167,7 @@ class TemplateAgent(DefaultParty):
                 if actor != self.me:
                     # obtain the name of the opponent, cutting of the position ID.
                     self.opponent_name = str(actor).rsplit("_", 1)[0]
-                    print("The Opponent is " + self.opponent_name)
+                    # print("The Opponent is " + self.opponent_name)
 
                 # process action done by opponent
                 self.opponent_action(action)
@@ -248,3 +322,6 @@ class TemplateAgent(DefaultParty):
             score += opponent_score
 
         return score
+
+    def learn(self):
+        return "ok"
