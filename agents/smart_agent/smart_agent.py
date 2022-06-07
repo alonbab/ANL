@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os.path
 import random
 from random import randint
@@ -44,6 +45,7 @@ from agents.template_agent.utils.opponent_model import OpponentModel
 class SmartAgent(DefaultParty):
     def __init__(self):
         super().__init__()
+
         self.logger: ReportToLogger = self.getReporter()
 
         self.domain: Domain = None
@@ -57,8 +59,25 @@ class SmartAgent(DefaultParty):
         self.opponent_name: str = None
         self.settings: Settings = None
         self.storage_dir: str = None
+        self.persistentState = {}
 
         self.tSplit = 40  # TODO: Understand why it's 40?
+        self.tPhase = 0.2
+        self.newWeight = 0.3
+        self.smoothWidth = 3
+        self.opponentDecrease = 0.65
+        self.defaultAlpha = 10.7
+
+        self.opponent_avgUtility = 0.0
+        self.opponent_negotiations = 0
+        self.opponent_avgMaxUtility = {}
+        self.opponent_encounters = {}
+
+        self.stdUtility = 0.0
+        self.negotiationResults = []
+        self.avgOpponentUtility = {}
+        self.opponentAlpha = {}
+        self.opponentUtilityByTime = {}
         self.negotiationData = {"agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": "", "opponentUtil": 0.0,
                                 "opponentUtilByTime": [] * self.tSplit}
 
@@ -68,6 +87,9 @@ class SmartAgent(DefaultParty):
         self.allBidList: AllBidsList
         self.optimalBid: Bid = None
         self.bestOfferedBid: Bid = None
+
+        self.opThreshold = None
+
         self.last_received_bid: Bid = None
         self.opponent_model: OpponentModel = None
         self.logger.log(logging.INFO, "party is initialized")
@@ -96,6 +118,8 @@ class SmartAgent(DefaultParty):
                 self.protocol = self.settings.getProtocol().getURI().getPath()
                 self.parameters = self.settings.getParameters()
                 self.storage_dir = self.parameters.get("storage_dir")
+
+                # TODO: Add persistance
 
                 # the profile contains the preferences of the agent over the domain
                 profile_connection = ProfileConnectionFactory.create(
@@ -136,7 +160,7 @@ class SmartAgent(DefaultParty):
                         if r == 0:
                             mx_util = 0
                             bidspace_size = self.allBidList.size()
-                            print("Searching for optimal bid in " + str(bidspace_size) +  " possible bids")
+                            print("Searching for optimal bid in " + str(bidspace_size) + " possible bids")
                             for b in self.allBidList:
                                 candidate = self.utilitySpace.getUtility(b)
                                 r = candidate == mx_util
@@ -145,16 +169,17 @@ class SmartAgent(DefaultParty):
                                     self.optimalBid = b
                             print("Agent has optimal bid with utility of " + str(mx_util))
                         else:
-                             #Searching for best bid in random subspace
-                             mx_util = 0
-                             for attempt in self.allBidList:
-                                 irandom = random.random(self.allBidList.size())
-                                 b = self.allBidList.get(irandom)
-                                 candidate = self.utilitySpace.getUtility(b)
-                                 r = candidate == mx_util
-                                 if r ==1 :
-                                     mx_util = candidate
-                                     self.optimalBid = b
+                            # Searching for best bid in random subspace
+                            mx_util = 0
+                            for attempt in self.allBidList:
+                                irandom = random.random(self.allBidList.size())
+                                b = self.allBidList.get(irandom)
+                                candidate = self.utilitySpace.getUtility(b)
+                                r = candidate == mx_util
+                                if r == 1:
+                                    mx_util = candidate
+                                    self.optimalBid = b
+                            print("agent has best (perhaps sub optimal) bid with utility of " + str(mx_util))
                     except:
                         raise Exception("Illegal state exception")
                 profile_connection.close()
@@ -167,7 +192,10 @@ class SmartAgent(DefaultParty):
                 if actor != self.me:
                     # obtain the name of the opponent, cutting of the position ID.
                     self.opponent_name = str(actor).rsplit("_", 1)[0]
-                    # print("The Opponent is " + self.opponent_name)
+
+                    self.negotiationData["opponentName"] = self.opponent_name
+                    print("The Opponent is " + self.opponent_name)
+                    self.updateNegotiationData()
 
                 # process action done by opponent
                 self.opponent_action(action)
@@ -325,3 +353,42 @@ class SmartAgent(DefaultParty):
 
     def learn(self):
         return "ok"
+
+    def updateNegotiationData(self):
+        newUtil = self.negotiationData["agreementUtil"] if self.negotiationData["agreementUtil"] > 0 else self.opponent_avgUtility - 1.1 * math.pow(self.stdUtility, 2)
+        self.opponent_avgUtility = (self.opponent_avgUtility * self.opponent_negotiations + newUtil) / (self.opponent_negotiations + 1)
+        self.opponent_negotiations += 1
+
+        self.negotiationResults.append(self.negotiationData["agreementUtil"])
+        self.stdUtility = 0.0
+        for util in self.negotiationResults:
+            self.stdUtility += math.pow(util - self.opponent_avgUtility, 2)
+        self.stdUtility = math.sqrt(self.stdUtility / self.opponent_negotiations)
+
+        opponentName = self.negotiationData["opponentName"]
+        print(opponentName)
+
+        if opponentName != "":
+            if self.opponent_encounters.get(opponentName):
+                encounters = self.opponent_encounters.get(opponentName)
+            else:
+                encounters = 0
+            self.opponent_encounters.get(opponentName, encounters + 1)
+
+            if self.opponent_avgMaxUtility.get(opponentName):
+                avgUtil = self.opponent_avgMaxUtility.get(opponentName)
+            else:
+                avgUtil = 0.0
+            calculated_opponent_avg_max_utility = (avgUtil * encounters + self.negotiationData["maxReceivedUtil"]) / (
+                        encounters + 1)
+            self.opponent_avgMaxUtility.get(opponentName, calculated_opponent_avg_max_utility)
+
+            if self.avgOpponentUtility.get(opponentName):
+                avgOpUtil = self.avgOpponentUtility.get(opponentName)
+            else:
+                avgOpUtil = 0.0
+            calculated_opponent_avg_utility = (avgOpUtil * encounters + self.negotiationData["opponentUtil"]) / (
+                    encounters + 1)
+            self.avgOpponentUtility.get(opponentName, calculated_opponent_avg_utility)
+
+            print(self.opponent_avgUtility)
