@@ -442,16 +442,16 @@ class SmartAgent(DefaultParty):
         return self.opponent_encounters.get(opponentName, 0)
 
     def getSmoothThresholdOverTime(self, opponentName):
-          if not self.isKnownOpponent(opponentName):
-              return None
-          opponentTimeUtil = self.negotiationData["opponentUtilByTime"]
-          smoothedTimeUtil = [0.0]*self.tSplit
+      if not self.isKnownOpponent(opponentName):
+         return None
+      opponentTimeUtil = self.negotiationData["opponentUtilByTime"]
+      smoothedTimeUtil = [0.0]*self.tSplit
 
-        for i in range(0, self.tSplit, 1):
-            for j in range(max(i - self.smoothWidth, 0), min(i + self.smoothWidth + 1, self.tSplit), 1):
+      for i in range(0, self.tSplit, 1):
+          for j in range(max(i - self.smoothWidth, 0), min(i + self.smoothWidth + 1, self.tSplit), 1):
                 smoothedTimeUtil[i] += opponentTimeUtil[j]
-            smoothedTimeUtil[i] /= (min(i + self.smoothWidth + 1, self.tSplit) - max(i - self.smoothWidth, 0))
-        return smoothedTimeUtil
+          smoothedTimeUtil[i] /= (min(i + self.smoothWidth + 1, self.tSplit) - max(i - self.smoothWidth, 0))
+      return smoothedTimeUtil
 
     def calcAlpha(self, opponentName):
         alphaArray = self.getSmoothThresholdOverTime(opponentName)
