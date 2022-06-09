@@ -80,10 +80,10 @@ class SmartAgent(DefaultParty):
         self.negotiationResults = []
         self.avgOpponentUtility = {}
         self.opponentAlpha = {}
-        self.opponent_sum = []
-        self.opponent_Counter = []
+        self.opponent_sum = [0.0] * 5000
+        self.opponent_Counter = [0.0] * 5000
 
-        self.persistentState = {"opponentAlpha": 0.0, "AvgMaxUtility": 0.0}
+        self.persistentState = {"opponentAlpha": self.defaultAlpha, "AvgMaxUtility": 0.0}
         self.negotiationData = {"agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": "", "opponentUtil": 0.0,
                                 "opponentUtilByTime": [0.0] * self.tSplit}
         self.opponentUtilityByTime = self.negotiationData["opponentUtilByTime"]
@@ -292,8 +292,11 @@ class SmartAgent(DefaultParty):
         to perform and send this action to the opponent.
         """
         if self.isNearNegotiationEnd() > 0 :
-            index = int((self.tSplit - 1)/(1-self.tPhase)*(self.progress.get(time()*1000 - self.tPhase)))
-            self.opponent_sum[index] += self.calcOpValue(self.last_received_bid)
+            index = int((self.tSplit - 1)/(1-self.tPhase)*(self.progress.get(time()*1000) - self.tPhase))
+            if self.opponent_sum[index]:
+                self.opponent_sum[index] = self.calcOpValue(self.last_received_bid)
+            else:
+                self.opponent_sum[index] += self.calcOpValue(self.last_received_bid)
             self.opponent_Counter[index] += 1
         # check if the last received offer is good enough
         if self.accept_condition(self.last_received_bid):
@@ -335,7 +338,7 @@ class SmartAgent(DefaultParty):
                 data = json.load(f)
                 return data
         else:
-            return {"opponentAlpha": 0.0, "agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": "",
+            return {"opponentAlpha": self.defaultAlpha, "agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": self.opponent_name,
                     "opponentUtil": 0.0,
                     "opponentUtilByTime": [0.0] * self.tSplit}
 
@@ -357,8 +360,8 @@ class SmartAgent(DefaultParty):
     def calcOpValue(self, bid: Bid):
         if not bid:
             return 0
-        own_utility = self.profile.getProfile().getUtility(bid)
-        opponent_utility = self.opponent_model.getUtility(bid)
+        # own_utility = self.profile.getProfile().getUtility(bid)
+        opponent_utility = self.opponent_model.get_predicted_utility(bid) #.getUtility(bid)
         return opponent_utility
 
     def isOpGood(self,bid: Bid):
