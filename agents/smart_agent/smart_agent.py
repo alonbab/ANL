@@ -87,6 +87,7 @@ class SmartAgent(DefaultParty):
         self.negotiationData = {"agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": "", "opponentUtil": 0.0,
                                 "opponentUtilByTime": [0.0] * self.tSplit}
         self.opponentUtilityByTime = self.negotiationData["opponentUtilByTime"]
+        self.need_to_read_persistent_data = True
         self.freqMap = {}
         self.MAX_SEARCHABLE_BIDSPACE = 50000
         self.utilitySpace: UtilitySpace = None
@@ -127,7 +128,6 @@ class SmartAgent(DefaultParty):
                 self.storage_dir = self.parameters.get("storage_dir")
 
                 # TODO: Add persistance
-
                 # the profile contains the preferences of the agent over the domain
                 profile_connection = ProfileConnectionFactory.create(
                     data.getProfile().getURI(), self.getReporter()
@@ -200,9 +200,11 @@ class SmartAgent(DefaultParty):
                 if actor != self.me:
                     # obtain the name of the opponent, cutting of the position ID.
                     self.opponent_name = str(actor).rsplit("_", 1)[0]
-
-                    self.negotiationData["opponentName"] =self.opponent_name
-                    print("The Opponent is " + self.negotiationData["opponentName"])
+                    # TODO: Add persistance
+                    if self.need_to_read_persistent_data:
+                        self.negotiationData = self.readPersistentNegotiationData()
+                        self.need_to_read_persistent_data = False
+                    self.negotiationData["opponentName"] = self.opponent_name
                     self.opThreshold = self.getSmoothThresholdOverTime(self.opponent_name)
                     if self.opThreshold != None:
                         for i in range(1, self.tSplit, 1):
@@ -212,6 +214,8 @@ class SmartAgent(DefaultParty):
                     print("alpha is " + str(self.persistentState["opponentAlpha"]))
                     if self.alpha < 0.0:
                         self.alpha = self.defaultAlpha
+                    self.updateNegotiationData()
+
                 # process action done by opponent
                     self.opponent_action(action)
 
@@ -324,6 +328,16 @@ class SmartAgent(DefaultParty):
             action = Offer(self.me, bid)
         # send the action
         self.send_action(action)
+
+    def readPersistentNegotiationData(self):
+        if os.path.exists(f"{self.storage_dir}/{self.opponent_name}"):
+            with open(f"{self.storage_dir}/{self.opponent_name}", "r") as f:
+                data = json.load(f)
+                return data
+        else:
+            return {"opponentAlpha": 0.0, "agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": "",
+                    "opponentUtil": 0.0,
+                    "opponentUtilByTime": [0.0] * self.tSplit}
 
     def save_data(self):
         """This method is called after the negotiation is finished. It can be used to store data
