@@ -125,7 +125,6 @@ class SmartAgent(DefaultParty):
                 self.storage_dir = self.parameters.get("storage_dir")
 
                 # TODO: Add persistance
-
                 # the profile contains the preferences of the agent over the domain
                 profile_connection = ProfileConnectionFactory.create(
                     data.getProfile().getURI(), self.getReporter()
@@ -300,6 +299,16 @@ class SmartAgent(DefaultParty):
 
         # send the action
         self.send_action(action)
+
+    def readPersistentNegotiationData(self):
+        if os.path.exists(f"{self.storage_dir}/{self.opponent_name}"):
+            with open(f"{self.storage_dir}/{self.opponent_name}", "r") as f:
+                data = json.load(f)
+                return data
+        else:
+            return {"opponentAlpha": 0.0, "agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": "",
+                    "opponentUtil": 0.0,
+                    "opponentUtilByTime": [0.0] * self.tSplit}
 
     def save_data(self):
         """This method is called after the negotiation is finished. It can be used to store data
