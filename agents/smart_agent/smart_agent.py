@@ -3,6 +3,7 @@ import logging
 import math
 import os.path
 import random
+from decimal import Decimal
 from random import randint
 from time import time
 from typing import cast
@@ -61,7 +62,7 @@ class SmartAgent(DefaultParty):
         self.settings: Settings = None
         self.storage_dir: str = None
 
-        self.tSplit = 40  # TODO: Understand why it's 40?
+        self.tSplit = 40
         self.tPhase = 0.2
         self.newWeight = 0.3
         self.smoothWidth = 3
@@ -78,12 +79,12 @@ class SmartAgent(DefaultParty):
         self.negotiationResults = []
         self.avgOpponentUtility = {}
         self.opponentAlpha = {}
-        self.opponentUtilityByTime = {}
+
 
         self.persistentState = {"opponentAlpha": 0.0}
         self.negotiationData = {"agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": "", "opponentUtil": 0.0,
                                 "opponentUtilByTime": [0.0] * self.tSplit}
-
+        self.opponentUtilityByTime = self.negotiationData["opponentUtilByTime"]
         self.freqMap = {}
         self.MAX_SEARCHABLE_BIDSPACE = 50000
         self.utilitySpace: UtilitySpace = None
@@ -131,7 +132,7 @@ class SmartAgent(DefaultParty):
                 self.profile = profile_connection.getProfile()
                 self.domain = self.profile.getDomain()
 
-                if self.protocol is "Learn":
+                if str(self.settings.getProtocol().getURI()) == "Learn":
                     self.learn()
                     self.getConnection().send(geniusweb.actions.LearningDone.LearningDone)
                 else:
@@ -141,32 +142,33 @@ class SmartAgent(DefaultParty):
                                                                           self.getReporter())
                         domain = self.profileInt.getProfile().getDomain()
                         # TODO: Part of strategy - if you change strategy remove this
-                        if self.freqMap != {}:
-                            self.freqMap.clear()
-                        issues = domain.getIssues()
-                        for s in issues:
-                            pair = ({}, {})
-                            vlist = pair[1]
-                            vs = domain.getValues(s)
-                            if isinstance(vs.get(0), DiscreteValue.DiscreteValue.__class__):
-                                pair.type = 0
-                            elif isinstance(vs.get(0), NumberValue.NumberValue.__class__):
-                                pair.type = 1
-                            for v in vs:
-                                vlist[str(v)] = 0
-                            self.freqMap[s] = pair
+                        # if self.freqMap != {}:
+                        #     self.freqMap.clear()
+                        # issues = domain.getIssues()
+                        # for s in issues:
+                        #     pair = ({}, {})
+                        #     vlist = pair[1]
+                        #     vs = domain.getValues(s)
+                        #     if isinstance(vs.get(0), DiscreteValue.DiscreteValue.__class__):
+                        #         pair.type = 0
+                        #     elif isinstance(vs.get(0), NumberValue.NumberValue.__class__):
+                        #         pair.type = 1
+                        #     for v in vs:
+                        #         vlist[str(v)] = 0
+                        #     self.freqMap[s] = pair
                         self.utilitySpace: UtilitySpace.UtilitySpace = self.profileInt.getProfile()
                         self.allBidList = AllBidsList(domain)
 
                         # TODO: Also part of the strategy
                         r = self.allBidList == self.MAX_SEARCHABLE_BIDSPACE
-                        if r == 0:
+                        if r == 0 or r == -1:
                             mx_util = 0
                             bidspace_size = self.allBidList.size()
                             print("Searching for optimal bid in " + str(bidspace_size) + " possible bids")
-                            for b in self.allBidList:
+                            for i in range(0, bidspace_size, 1):
+                                b: Bid = self.allBidList.get(i)
                                 candidate = self.utilitySpace.getUtility(b)
-                                r = candidate == mx_util
+                                r = candidate > mx_util
                                 if r == 1:
                                     mx_util = candidate
                                     self.optimalBid = b
@@ -178,7 +180,7 @@ class SmartAgent(DefaultParty):
                                 irandom = random.random(self.allBidList.size())
                                 b = self.allBidList.get(irandom)
                                 candidate = self.utilitySpace.getUtility(b)
-                                r = candidate == mx_util
+                                r = candidate > mx_util
                                 if r == 1:
                                     mx_util = candidate
                                     self.optimalBid = b
@@ -196,18 +198,20 @@ class SmartAgent(DefaultParty):
                     # obtain the name of the opponent, cutting of the position ID.
                     self.opponent_name = str(actor).rsplit("_", 1)[0]
 
-                    self.negotiationData.get("opponentName", self.opponent_name)
-                    print("The Opponent is " + self.opponent_name)
+                    self.negotiationData["opponentName"] =self.opponent_name
+                    print("The Opponent is " + self.negotiationData["opponentName"])
                     self.opThreshold = self.getSmoothThresholdOverTime(self.opponent_name)
                     if self.opThreshold != None:
                         for i in range(1, self.tSplit, 1):
                             if self.opThreshold[i] < 0:
                                 self.opThreshold[i] = self.opThreshold[i-1]
-                    self.alpha = self.persistentState.get("opponentAlpha")
+                    self.alpha = self.persistentState["opponentAlpha"]
+                    print("alpha is " + str(self.persistentState["opponentAlpha"]))
                     if self.alpha < 0.0:
                         self.alpha = self.defaultAlpha
                 # process action done by opponent
-                self.opponent_action(action)
+                    self.opponent_action(action)
+
             # YourTurn notifies you that it is your turn to act
             elif isinstance(data, YourTurn):
                 if isinstance(self.progress,ProgressRounds):
@@ -232,7 +236,7 @@ class SmartAgent(DefaultParty):
             Capabilities: Capabilities representation class
         """
         return Capabilities(
-            set(["SAOP"]),
+            set(["SAOP", "Learn"]),
             set(["geniusweb.profile.utilityspace.LinearAdditive"]),
         )
 
@@ -269,10 +273,12 @@ class SmartAgent(DefaultParty):
             bid = cast(Offer, action).getBid()
             # update opponent model with bid
             self.opponent_model.update(bid)
+            self.updateNegotiationData()
             # set bid as last received
             self.last_received_bid = bid
             utilVal = self.utilitySpace.getUtility(bid)
-            self.negotiationData.get("maxReceivedUtil", utilVal)
+            self.negotiationData["maxReceivedUtil"] = utilVal
+            print( self.negotiationData["maxReceivedUtil"])
 
     def my_turn(self):
         """This method is called when it is our turn. It should decide upon an action
@@ -406,34 +412,35 @@ class SmartAgent(DefaultParty):
         return alpha
 
     def updateNegotiationData(self):
-        newUtil = self.negotiationData["agreementUtil"] if self.negotiationData[
-                                                               "agreementUtil"] > 0 else self.opponent_avgUtility - 1.1 * math.pow(
-            self.stdUtility, 2)
-        self.opponent_avgUtility = (self.opponent_avgUtility * self.opponent_negotiations + newUtil) / (
+       if self.negotiationData.get("agreementUtil") > 0:
+           newUtil = self.negotiationData.get("agreementUtil")
+       else:
+           newUtil = self.opponent_avgUtility - 1.1 * math.pow(self.stdUtility, 2)
+       self.opponent_avgUtility = (self.opponent_avgUtility * self.opponent_negotiations + newUtil) / (
                     self.opponent_negotiations + 1)
-        self.opponent_negotiations += 1
+       self.opponent_negotiations += 1
 
-        self.negotiationResults.append(self.negotiationData["agreementUtil"])
-        self.stdUtility = 0.0
-        for util in self.negotiationResults:
-            self.stdUtility += math.pow(util - self.opponent_avgUtility, 2)
-        self.stdUtility = math.sqrt(self.stdUtility / self.opponent_negotiations)
+       self.negotiationResults.append(self.negotiationData["agreementUtil"])
+       self.stdUtility = 0.0
+       for util in self.negotiationResults:
+           self.stdUtility += math.pow(util - self.opponent_avgUtility, 2)
+       self.stdUtility = math.sqrt(self.stdUtility / self.opponent_negotiations)
 
-        opponentName = self.negotiationData["opponentName"]
-        print(opponentName)
+       opponentName = self.negotiationData["opponentName"]
+       print(opponentName)
 
-        if opponentName != "":
+       if opponentName != "":
             if self.opponent_encounters.get(opponentName):
                 encounters = self.opponent_encounters.get(opponentName)
             else:
                 encounters = 0
-            self.opponent_encounters.get(opponentName, encounters + 1)
+            self.opponent_encounters[opponentName] = encounters + 1
 
             if self.opponent_avgMaxUtility.get(opponentName):
-                avgUtil = self.opponent_avgMaxUtility.get(opponentName)
+                avgUtil = self.opponent_avgMaxUtility[opponentName]
             else:
                 avgUtil = 0.0
-            calculated_opponent_avg_max_utility = (avgUtil * encounters + self.negotiationData["maxReceivedUtil"]) / (
+            calculated_opponent_avg_max_utility = (float(avgUtil * encounters) + float(self.negotiationData["maxReceivedUtil"])) / (
                     encounters + 1)
             self.opponent_avgMaxUtility.get(opponentName, calculated_opponent_avg_max_utility)
 
@@ -441,32 +448,29 @@ class SmartAgent(DefaultParty):
                 avgOpUtil = self.avgOpponentUtility.get(opponentName)
             else:
                 avgOpUtil = 0.0
-            calculated_opponent_avg_utility = (avgOpUtil * encounters + self.negotiationData["opponentUtil"]) / (
+            calculated_opponent_avg_utility = (float(avgOpUtil * encounters) + float(self.negotiationData["opponentUtil"])) / (
                     encounters + 1)
             self.avgOpponentUtility.get(opponentName, calculated_opponent_avg_utility)
-            if self.opponentUtilityByTime.get(opponentName):
-                opponentTimeUtility = self.opponentUtilityByTime.get(opponentName)
+            if self.opponentUtilityByTime:
+                opponentTimeUtility = self.opponentUtilityByTime
             else:
                 opponentTimeUtility = [0.0] * self.tSplit
 
             newUtilData = self.negotiationData.get("opponentUtilByTime")
-            print("newUtilData length is" + str(len(newUtilData)))
             if opponentTimeUtility[0] > 0.0:
                 ratio = ((1 - self.newWeight) * opponentTimeUtility[0] + self.newWeight * newUtilData[0] /
                          opponentTimeUtility[0])
             else:
                 ratio = 1
-            for utilData in newUtilData:
-                indexUtilData = newUtilData.index(utilData)
-                if utilData > 0:
+            for i in range(0, self.tSplit, 1):
+                if newUtilData[i] > 0:
                     valueUtilData = (
-                                (1 - self.newWeight) * opponentTimeUtility[indexUtilData] + self.newWeight * newUtilData[
-                            indexUtilData])
-                    opponentTimeUtility.insert(indexUtilData, valueUtilData)
+                                (1 - self.newWeight) * opponentTimeUtility[i] + self.newWeight * newUtilData[i])
+                    opponentTimeUtility[i] = valueUtilData
                 else:
-                    opponentTimeUtility[indexUtilData] *= ratio
-            self.opponentUtilityByTime[opponentName] = opponentTimeUtility
-            print(opponentTimeUtility)
+                    opponentTimeUtility[i] *= ratio
+            self.negotiationData["opponentUtilByTime"] = opponentTimeUtility
+            print(self.negotiationData["opponentUtilByTime"])
             self.opponentAlpha[opponentName] = self.calcAlpha(opponentName)
 
 
