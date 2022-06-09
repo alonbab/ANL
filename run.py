@@ -19,6 +19,7 @@ settings = {
     "agents": [
         {
             "class": "agents.smart_agent.smart_agent.SmartAgent",
+            "parameters": {"storage_dir": "agent_storage/SmartAgent"},
         },
         {
             "class": "agents.template_agent.template_agent.TemplateAgent",
