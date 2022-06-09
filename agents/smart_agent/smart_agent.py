@@ -48,6 +48,7 @@ class SmartAgent(DefaultParty):
     def __init__(self):
         super().__init__()
 
+
         self.logger: ReportToLogger = self.getReporter()
 
         self.domain: Domain = None
@@ -79,9 +80,10 @@ class SmartAgent(DefaultParty):
         self.negotiationResults = []
         self.avgOpponentUtility = {}
         self.opponentAlpha = {}
+        self.opponent_sum = []
+        self.opponent_Counter = []
 
-
-        self.persistentState = {"opponentAlpha": 0.0}
+        self.persistentState = {"opponentAlpha": 0.0, "AvgMaxUtility": 0.0}
         self.negotiationData = {"agreementUtil": 0.0, "maxReceivedUtil": 0.0, "opponentName": "", "opponentUtil": 0.0,
                                 "opponentUtilByTime": [0.0] * self.tSplit}
         self.opponentUtilityByTime = self.negotiationData["opponentUtilByTime"]
@@ -91,6 +93,7 @@ class SmartAgent(DefaultParty):
         self.allBidList: AllBidsList
         self.optimalBid: Bid = None
         self.bestOfferedBid: Bid = None
+        self.utilThreshold = None
 
         self.opThreshold = None
 
@@ -284,15 +287,41 @@ class SmartAgent(DefaultParty):
         """This method is called when it is our turn. It should decide upon an action
         to perform and send this action to the opponent.
         """
+        if self.isNearNegotiationEnd() > 0 :
+            index = int((self.tSplit - 1)/(1-self.tPhase)*(self.progress.get(time()*1000 - self.tPhase)))
+            self.opponent_sum[index] += self.calcOpValue(self.last_received_bid)
+            self.opponent_Counter[index] += 1
         # check if the last received offer is good enough
         if self.accept_condition(self.last_received_bid):
             # if so, accept the offer
             action = Accept(self.me, self.last_received_bid)
         else:
             # if not, find a bid to propose as counter offer
-            bid = self.find_bid()
-            action = Offer(self.me, bid)
+            bid: Bid = None
 
+            if self.bestOfferedBid == None:
+                self.bestOfferedBid = self.last_received_bid
+            elif self.utilitySpace.getUtility(self.last_received_bid) > self.utilitySpace.getUtility(self.bestOfferedBid):
+                self.bestOfferedBid = self.last_received_bid
+            if self.isNearNegotiationEnd() == 0:
+                for attempt in range(0,1000,1):
+                    if not self.accept_condition(bid):
+                        i = random.randint(0, self.allBidList.size())
+                        bid = self.allBidList.get(i)
+                    if self.accept_condition(bid):
+                        bid = bid
+                    else:
+                        bid = self.optimalBid
+            if self.isNearNegotiationEnd() == 1 or self.isNearNegotiationEnd() == 2:
+                for attempt in range(0,1000,1):
+                    if bid != self.optimalBid and not self.accept_condition(bid) and not self.isOpGood(bid):
+                        i = random.randint(0, self.allBidList.size())
+                        bid = self.allBidList.get(i)
+                    if self.progress.get(time()*1000) > 0.99 and self.accept_condition((self.bestOfferedBid)):
+                        bid = self.bestOfferedBid
+                    if not self.accept_condition(bid):
+                        bid = self.optimalBid
+            action = Offer(self.me, bid)
         # send the action
         self.send_action(action)
 
@@ -305,24 +334,46 @@ class SmartAgent(DefaultParty):
         with open(f"{self.storage_dir}/data.md", "w") as f:
             f.write(data)
 
+    def isNearNegotiationEnd(self):
+         if self.progress.get(time()*1000) < self.tPhase:
+             return 0
+         else:
+             return 1
+
+    def calcOpValue(self, bid: Bid):
+        if not bid:
+            return 0
+        own_utility = self.profile.getProfile().getUtility(bid)
+        opponent_utility = self.opponent_model.getUtility(bid)
+        return opponent_utility
+
+    def isOpGood(self,bid: Bid):
+        if bid == None:
+            return 0
+        value = self.calcOpValue(bid)
+        index = int(((self.tSplit-1)/(1-self.tPhase)*(self.progress.get(time()*1000) - self.tPhase)))
+        if self.opThreshold != None:
+            self.opThreshold = max(1-2*self.opThreshold[index],0.2)
+        else:
+            self.opThreshold = 0.6
+        return value > self.opThreshold
     ###########################################################################################
     ################################## Example methods below ##################################
     ###########################################################################################
 
     def accept_condition(self, bid: Bid) -> bool:
-        if bid is None:
+        if bid is None or self.opponent_name is None:
             return False
-
-        # progress of the negotiation session between 0 and 1 (1 is deadline)
-        progress = self.progress.get(time() * 1000)
-
-        # very basic approach that accepts if the offer is valued above 0.7 and
-        # 95% of the time towards the deadline has passed
-        conditions = [
-            self.profile.getUtility(bid) > 0.8,
-            progress > 0.95,
-        ]
-        return all(conditions)
+        avgMaxUtility = self.avgOpponentUtility[self.opponent_name]
+        if self.optimalBid != None:
+            maxValue = 0.95 * float(self.utilitySpace.getUtility(self.optimalBid))
+        else:
+            maxValue = 0.95
+        if self.isKnownOpponent(self.opponent_name):
+            avgMaxUtility = self.avgOpponentUtility[self.opponent_name]
+        if self.alpha != 0:
+         self.utilThreshold = maxValue - (maxValue - 0.6*self.opponent_avgUtility - 0.4*avgMaxUtility + pow(self.stdUtility, 2)) * (math.exp(self.alpha*self.progress.get(time()*1000) - 1) - 1)/(math.exp(self.alpha) - 1)
+        return  self.utilitySpace.getUtility(bid) >= self.utilThreshold
 
     def find_bid(self) -> Bid:
         # compose a list of all possible bids
@@ -377,7 +428,7 @@ class SmartAgent(DefaultParty):
     def getSmoothThresholdOverTime(self, opponentName):
           if not self.isKnownOpponent(opponentName):
               return None
-          opponentTimeUtil = self.negotiationData.get("opponentUtilByTime")
+          opponentTimeUtil = self.negotiationData["opponentUtilByTime"]
           smoothedTimeUtil = [0.0]*self.tSplit
 
           for i in range(0,self.tSplit, 1):
@@ -419,7 +470,7 @@ class SmartAgent(DefaultParty):
        self.opponent_avgUtility = (self.opponent_avgUtility * self.opponent_negotiations + newUtil) / (
                     self.opponent_negotiations + 1)
        self.opponent_negotiations += 1
-
+       self.avgOpponentUtility[self.opponent_name] = self.opponent_avgUtility
        self.negotiationResults.append(self.negotiationData["agreementUtil"])
        self.stdUtility = 0.0
        for util in self.negotiationResults:
@@ -444,13 +495,13 @@ class SmartAgent(DefaultParty):
                     encounters + 1)
             self.opponent_avgMaxUtility.get(opponentName, calculated_opponent_avg_max_utility)
 
-            if self.avgOpponentUtility.get(opponentName):
-                avgOpUtil = self.avgOpponentUtility.get(opponentName)
+            if self.avgOpponentUtility[opponentName]:
+                avgOpUtil = self.avgOpponentUtility[opponentName]
             else:
                 avgOpUtil = 0.0
             calculated_opponent_avg_utility = (float(avgOpUtil * encounters) + float(self.negotiationData["opponentUtil"])) / (
                     encounters + 1)
-            self.avgOpponentUtility.get(opponentName, calculated_opponent_avg_utility)
+            self.avgOpponentUtility[opponentName] = calculated_opponent_avg_utility
             if self.opponentUtilityByTime:
                 opponentTimeUtility = self.opponentUtilityByTime
             else:
