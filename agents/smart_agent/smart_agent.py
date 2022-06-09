@@ -48,7 +48,6 @@ class SmartAgent(DefaultParty):
     def __init__(self):
         super().__init__()
 
-
         self.logger: ReportToLogger = self.getReporter()
 
         self.domain: Domain = None
@@ -209,19 +208,19 @@ class SmartAgent(DefaultParty):
                     if self.opThreshold != None:
                         for i in range(1, self.tSplit, 1):
                             if self.opThreshold[i] < 0:
-                                self.opThreshold[i] = self.opThreshold[i-1]
+                                self.opThreshold[i] = self.opThreshold[i - 1]
                     self.alpha = self.persistentState["opponentAlpha"]
                     print("alpha is " + str(self.persistentState["opponentAlpha"]))
                     if self.alpha < 0.0:
                         self.alpha = self.defaultAlpha
                     self.updateNegotiationData()
 
-                # process action done by opponent
+                    # process action done by opponent
                     self.opponent_action(action)
 
             # YourTurn notifies you that it is your turn to act
             elif isinstance(data, YourTurn):
-                if isinstance(self.progress,ProgressRounds):
+                if isinstance(self.progress, ProgressRounds):
                     self.progress = cast(ProgressRounds, self.progress).advance()
                 self.my_turn()
                 # Finished will be send if the negotiation has ended (through agreement or deadline)
@@ -285,7 +284,7 @@ class SmartAgent(DefaultParty):
             self.last_received_bid = bid
             utilVal = self.utilitySpace.getUtility(bid)
             self.negotiationData["maxReceivedUtil"] = utilVal
-            print( self.negotiationData["maxReceivedUtil"])
+            print(self.negotiationData["maxReceivedUtil"])
 
     def my_turn(self):
         """This method is called when it is our turn. It should decide upon an action
@@ -329,6 +328,7 @@ class SmartAgent(DefaultParty):
                     if not self.accept_condition(bid):
                         bid = self.optimalBid
             action = Offer(self.me, bid)
+
         # send the action
         self.send_action(action)
 
@@ -347,9 +347,8 @@ class SmartAgent(DefaultParty):
         for learning capabilities. Note that no extensive calculations can be done within this method.
         Taking too much time might result in your agent being killed, so use it for storage only.
         """
-        data = "Data for learning (see README.md)"
-        with open(f"{self.storage_dir}/data.md", "w") as f:
-            f.write(data)
+        with open(f"{self.storage_dir}/{self.opponent_name}", "w") as f:
+            f.write(json.dumps(self.negotiationData))
 
     def isNearNegotiationEnd(self):
          if self.progress.get(time()*1000) < self.tPhase:
@@ -437,10 +436,10 @@ class SmartAgent(DefaultParty):
         return score
 
     def learn(self):
-     return "ok"
+        return "ok"
 
     def isKnownOpponent(self, opponentName):
-         return self.opponent_encounters.get(opponentName, 0)
+        return self.opponent_encounters.get(opponentName, 0)
 
     def getSmoothThresholdOverTime(self, opponentName):
           if not self.isKnownOpponent(opponentName):
@@ -448,17 +447,18 @@ class SmartAgent(DefaultParty):
           opponentTimeUtil = self.negotiationData["opponentUtilByTime"]
           smoothedTimeUtil = [0.0]*self.tSplit
 
-          for i in range(0,self.tSplit, 1):
-              for j in range(max(i-self.smoothWidth,0), min(i+self.smoothWidth+1,self.tSplit), 1):
-                  smoothedTimeUtil[i] += opponentTimeUtil[j]
-              smoothedTimeUtil[i] /= (min(i+self.smoothWidth+1, self.tSplit) - max(i-self.smoothWidth, 0))
-          return smoothedTimeUtil
+        for i in range(0, self.tSplit, 1):
+            for j in range(max(i - self.smoothWidth, 0), min(i + self.smoothWidth + 1, self.tSplit), 1):
+                smoothedTimeUtil[i] += opponentTimeUtil[j]
+            smoothedTimeUtil[i] /= (min(i + self.smoothWidth + 1, self.tSplit) - max(i - self.smoothWidth, 0))
+        return smoothedTimeUtil
+
     def calcAlpha(self, opponentName):
         alphaArray = self.getSmoothThresholdOverTime(opponentName)
         if alphaArray == None:
             return self.defaultAlpha
         for maxIndex in range(0, self.tSplit, 1):
-            if alphaArray[maxIndex] >0.2:
+            if alphaArray[maxIndex] > 0.2:
                 break
         maxValue = alphaArray[0]
         minValue = alphaArray[max(maxIndex - self.smoothWidth - 1, 0)]
@@ -466,15 +466,16 @@ class SmartAgent(DefaultParty):
         if maxValue - minValue < 0.1:
             return self.defaultAlpha
         for t in range(0, maxIndex, 1):
-            if alphaArray[t] > (maxValue-self.opponentDecrease*(maxValue-minValue)):
+            if alphaArray[t] > (maxValue - self.opponentDecrease * (maxValue - minValue)):
                 break
-        calibratedPolynom = {572.83,-1186.7, 899.29, -284.68, 32.911}
+        calibratedPolynom = {572.83, -1186.7, 899.29, -284.68, 32.911}
         alpha = calibratedPolynom[0]
 
         # lowers utility at 85% of the time why 85% ???
-        tTime = self.tPhase + (1-self.tPhase)*(maxIndex*(float(t)/self.tSplit) + (self.tSplit-maxIndex)*0.85)/self.tSplit
+        tTime = self.tPhase + (1 - self.tPhase) * (
+                    maxIndex * (float(t) / self.tSplit) + (self.tSplit - maxIndex) * 0.85) / self.tSplit
         for i in range(1, len(calibratedPolynom), 1):
-            alpha = alpha*tTime + calibratedPolynom[i]
+            alpha = alpha * tTime + calibratedPolynom[i]
 
         print("Alpha is :" + str(alpha))
         return alpha
@@ -508,8 +509,9 @@ class SmartAgent(DefaultParty):
                 avgUtil = self.opponent_avgMaxUtility[opponentName]
             else:
                 avgUtil = 0.0
-            calculated_opponent_avg_max_utility = (float(avgUtil * encounters) + float(self.negotiationData["maxReceivedUtil"])) / (
-                    encounters + 1)
+            calculated_opponent_avg_max_utility = (float(avgUtil * encounters) + float(
+                self.negotiationData["maxReceivedUtil"])) / (
+                                                          encounters + 1)
             self.opponent_avgMaxUtility.get(opponentName, calculated_opponent_avg_max_utility)
 
             if self.avgOpponentUtility[opponentName]:
@@ -533,7 +535,7 @@ class SmartAgent(DefaultParty):
             for i in range(0, self.tSplit, 1):
                 if newUtilData[i] > 0:
                     valueUtilData = (
-                                (1 - self.newWeight) * opponentTimeUtility[i] + self.newWeight * newUtilData[i])
+                            (1 - self.newWeight) * opponentTimeUtility[i] + self.newWeight * newUtilData[i])
                     opponentTimeUtility[i] = valueUtilData
                 else:
                     opponentTimeUtility[i] *= ratio
