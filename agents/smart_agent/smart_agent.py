@@ -81,7 +81,7 @@ class SmartAgent(DefaultParty):
         self.avg_opponent_utility = {}
         self.opponent_alpha = {}
         self.opponent_sum = [0.0] * 5000
-        self.opponent_Counter = [0.0] * 5000
+        self.opponent_counter = [0.0] * 5000
 
         self.persistent_state = {"opponent_alpha": self.default_alpha, "avg_max_utility": 0.0}
         self.negotiation_data = {"aggreement_util": 0.0, "max_received_util": 0.0, "opponent_name": "", "opponent_util": 0.0,
@@ -220,6 +220,9 @@ class SmartAgent(DefaultParty):
                 self.my_turn()
                 # Finished will be send if the negotiation has ended (through agreement or deadline)
             elif isinstance(data, Finished):
+                self.negotiation_data["aggreement_util"] = float(self.utilitySpace.getUtility(self.last_received_bid))
+                self.negotiation_data["opponent_util"] = self.calc_opponnets_value(self.last_received_bid)
+                self.update_opponents_offers(self.opponent_sum, self.opponent_counter)
                 self.save_data()
                 # terminate the agent MUST BE CALLED
                 self.logger.log(logging.INFO, "party is terminating:")
@@ -301,12 +304,10 @@ class SmartAgent(DefaultParty):
                 self.opponent_sum[index] = self.calc_opponnets_value(self.last_received_bid)
             else:
                 self.opponent_sum[index] += self.calc_opponnets_value(self.last_received_bid)
-            self.opponent_Counter[index] += 1
+            self.opponent_counter[index] += 1
         # check if the last received offer is good enough
         if self.accept_condition(self.last_received_bid):
             # if so, accept the offer
-            self.negotiation_data["aggreement_util"] = float(self.utilitySpace.getUtility(self.last_received_bid))
-            self.negotiation_data["opponent_util"] = self.calc_opponnets_value(self.last_received_bid)
             action = Accept(self.me, self.last_received_bid)
         else:
             # if not, find a bid to propose as counter offer
@@ -516,6 +517,13 @@ class SmartAgent(DefaultParty):
 
         return alpha
 
+    def update_opponents_offers(self, op_sum, op_counts):
+        for i in range(0, self.time_split):
+            if op_counts[i] > 0:
+                self.negotiation_data["opponent_util_by_time"][i] = op_sum[i]/op_counts[i]
+            else:
+                self.negotiation_data["opponent_util_by_time"][i] = 0
+
     def update_negotiation_data(self):
         if self.negotiation_data.get("aggreement_util") > 0:
             newUtil = self.negotiation_data.get("aggreement_util")
@@ -577,3 +585,4 @@ class SmartAgent(DefaultParty):
                     opponentTimeUtility[i] *= ratio
             self.negotiation_data["opponent_util_by_time"] = opponentTimeUtility
             self.opponent_alpha[opponent_name] = self.calculate_alpha(opponent_name)
+
