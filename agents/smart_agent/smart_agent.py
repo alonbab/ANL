@@ -160,7 +160,13 @@ class SmartAgent(DefaultParty):
                         self.utilitySpace: UtilitySpace.UtilitySpace = self.profileInt.getProfile()
                         self.all_bid_list = AllBidsList(domain)
 
-                        r = self.all_bid_list == self.MAX_SEARCHABLE_BIDSPACE
+                        bids_zise = self.all_bid_list.size()
+                        if bids_zise < self.MAX_SEARCHABLE_BIDSPACE:
+                            r = -1
+                        elif bids_zise == self.MAX_SEARCHABLE_BIDSPACE:
+                            r = 0
+                        else:
+                            r = 1
                         if r == 0 or r == -1:
                             mx_util = 0
                             bidspace_size = self.all_bid_list.size()
@@ -312,7 +318,7 @@ class SmartAgent(DefaultParty):
             # if not, find a bid to propose as counter offer
             bid: Bid = None
 
-            if self.bestOfferedBid == None:
+            if self.bestOfferedBid is None:
                 self.bestOfferedBid = self.last_received_bid
             elif self.utilitySpace.getUtility(self.last_received_bid) > self.utilitySpace.getUtility(
                     self.bestOfferedBid):
@@ -326,7 +332,8 @@ class SmartAgent(DefaultParty):
                         bid = bid
                     else:
                         bid = self.optimalBid
-            if self.is_near_negotiation_end() == 1 or self.is_near_negotiation_end() == 2:
+
+            else:
                 for attempt in range(0, 1000, 1):
                     if bid != self.optimalBid and not self.accept_condition(bid) and not self.is_opponents_proposal_is_good(bid):
                         i = random.randint(0, self.all_bid_list.size())
@@ -360,7 +367,8 @@ class SmartAgent(DefaultParty):
             f.write(json.dumps(self.negotiation_data))
 
     def is_near_negotiation_end(self):
-        if self.progress.get(time() * 1000) < self.time_phase:
+        prog = self.progress.get(time() * 1000)
+        if prog < self.time_phase:
             return 0
         else:
             return 1
@@ -473,6 +481,7 @@ class SmartAgent(DefaultParty):
         return score
 
     def learn(self):
+        # not called...
         return "ok"
 
     def isKnownOpponent(self, opponent_name):
