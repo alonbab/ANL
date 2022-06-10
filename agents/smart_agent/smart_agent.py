@@ -142,7 +142,7 @@ class SmartAgent(DefaultParty):
                         self.profileInt = ProfileConnectionFactory.create(self.settings.getProfile().getURI(),
                                                                           self.getReporter())
                         domain = self.profileInt.getProfile().getDomain()
-                        # TODO: Part of strategy - if you change strategy remove this
+
                         if self.freqMap != {}:
                             self.freqMap.clear()
                         issues = domain.getIssues()
@@ -160,7 +160,6 @@ class SmartAgent(DefaultParty):
                         self.utilitySpace: UtilitySpace.UtilitySpace = self.profileInt.getProfile()
                         self.all_bid_list = AllBidsList(domain)
 
-                        # TODO: Also part of the strategy
                         r = self.all_bid_list == self.MAX_SEARCHABLE_BIDSPACE
                         if r == 0 or r == -1:
                             mx_util = 0
@@ -168,18 +167,18 @@ class SmartAgent(DefaultParty):
                             for i in range(0, bidspace_size, 1):
                                 b: Bid = self.all_bid_list.get(i)
                                 candidate = self.utilitySpace.getUtility(b)
-                                r = candidate > mx_util
+                                r = candidate.compare(mx_util)
                                 if r == 1:
-                                    mx_util = candidate
-                                    self.optimalBid = b
+                                     mx_util = candidate
+                                     self.optimalBid = b
                         else:
                             # Searching for best bid in random subspace
                             mx_util = 0
-                            for attempt in self.all_bid_list:
+                            for attempt in range(0,self.MAX_SEARCHABLE_BIDSPACE,1):
                                 irandom = random.random(self.all_bid_list.size())
                                 b = self.all_bid_list.get(irandom)
                                 candidate = self.utilitySpace.getUtility(b)
-                                r = candidate > mx_util
+                                r = candidate.compare(mx_util)
                                 if r == 1:
                                     mx_util = candidate
                                     self.optimalBid = b
@@ -195,7 +194,6 @@ class SmartAgent(DefaultParty):
                 if actor != self.me:
                     # obtain the name of the opponent, cutting of the position ID.
                     self.opponent_name = str(actor).rsplit("_", 1)[0]
-                    # TODO: Add persistance
                     if self.need_to_read_persistent_data:
                         self.negotiation_data = self.read_persistent_negotiation_data()
                         self.need_to_read_persistent_data = False
@@ -261,7 +259,7 @@ class SmartAgent(DefaultParty):
         Returns:
             str: Agent description
         """
-        return "Template agent for the ANL 2022 competition"
+        return "Smart agent for the ANL 2022 competition"
 
     def update_frequency_map(self, bid):
         if bid is not None:
@@ -293,13 +291,14 @@ class SmartAgent(DefaultParty):
             self.update_frequency_map(self.last_received_bid)
             utilVal = self.utilitySpace.getUtility(bid)
             self.negotiation_data["max_received_util"] = float(utilVal)
-
+        if isinstance(action, Accept):
+            self.last_received_bid = self.optimalBid
     def my_turn(self):
         """This method is called when it is our turn. It should decide upon an action
         to perform and send this action to the opponent.
         """
         if self.is_near_negotiation_end() > 0:
-            index = int((self.time_split - 1) / (1 - self.time_phase) * (self.progress.get(time() * 1000) - self.time_phase))
+            index = int((self.time_split - 1) / (1 - self.time_phase) * (self.progress.get(int(time() * 1000)) - self.time_phase))
             if self.opponent_sum[index]:
                 self.opponent_sum[index] = self.calc_opponnets_value(self.last_received_bid)
             else:
@@ -332,7 +331,7 @@ class SmartAgent(DefaultParty):
                     if bid != self.optimalBid and not self.accept_condition(bid) and not self.is_opponents_proposal_is_good(bid):
                         i = random.randint(0, self.all_bid_list.size())
                         bid = self.all_bid_list.get(i)
-                    if self.progress.get(time() * 1000) > 0.99 and self.accept_condition(self.bestOfferedBid):
+                    if self.progress.get(int(time()) * 1000) > 0.99 and self.accept_condition(self.bestOfferedBid):
                         bid = self.bestOfferedBid
                     if not self.accept_condition(bid):
                         bid = self.optimalBid
@@ -367,8 +366,8 @@ class SmartAgent(DefaultParty):
             return 1
 
     def calc_opponnets_value(self, bid: Bid):
-        # if not bid:
-        #     return 0
+        if not bid:
+             return 0
         # # own_utility = self.profile.getProfile().getUtility(bid)
         # opponent_utility = self.opponent_model.get_predicted_utility(bid)  # .getUtility(bid)
         # return opponent_utility
